@@ -123,6 +123,26 @@
   .controls button:hover, .controls button:focus-visible { opacity: 1; }
   .controls button[hidden] { display: none; }
   #pipVideo { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
+  /* Marca de agua */
+  .mark {
+    position: fixed;
+    left: 1rem; bottom: 1rem;
+    z-index: 6;
+    color: #f2f2ec;
+    font: 600 .8rem "Fira Sans Condensed", sans-serif;
+    letter-spacing: .3em;
+    text-decoration: none;
+    text-shadow: none;
+    opacity: .3;
+    transition: opacity .2s;
+  }
+  .mark:hover, .mark:focus-visible { opacity: .8; }
+
+  @media (max-width: 560px) {
+    .controls { left: 1rem; right: 1rem; bottom: 2.6rem; justify-content: center; flex-wrap: wrap; }
+    .mark { left: 0; right: 0; text-align: center; bottom: .8rem; }
+  }
   @media (prefers-reduced-motion: reduce) {
     .shake { animation: none; }
   }
@@ -139,10 +159,12 @@
   </div></main>
   <div id="flash"></div>
   <div class="controls">
+    <button id="lang" type="button">EN</button>
     <button id="pip" type="button" hidden>▣ PIP</button>
-    <button id="fs" type="button" hidden>⛶ PANTALLA COMPLETA</button>
-    <button id="sound" type="button" aria-pressed="false">♪ SONIDO: NO</button>
+    <button id="fs" type="button" hidden>⛶</button>
+    <button id="sound" type="button" aria-pressed="false">♪</button>
   </div>
+  <a class="mark" href="https://github.com/Yuizz/tloz-ott-countdown" target="_blank" rel="noopener">YUIZZ</a>
   <video id="pipVideo" muted playsinline></video>
 
 <script>
@@ -155,6 +177,7 @@
   const WHITE = [242, 242, 236];
 
   // Modo prueba: ?t=segundos simula el tiempo restante (p. ej. ?t=3605, ?t=10)
+  // Idioma: ?lang=es|en fuerza un idioma.
   const params = new URLSearchParams(location.search);
   const offset = params.has("t") ? (TARGET - Date.now()) - Number(params.get("t")) * 1000 : 0;
   const now = () => Date.now() + offset;
@@ -162,17 +185,54 @@
   const $ = id => document.getElementById(id);
   const pad = n => String(n).padStart(2, "0");
   const root = document.documentElement.style;
-  const DAYS = ["Día Final", "Segundo Día", "Primer Día"];
 
-  // "Amanecer / Tarde / Noche del ..." según la hora del día
+  // ===== Idiomas =====
+  const I18N = {
+    es: {
+      part: ["Amanecer del", "Tarde del", "Noche del"],
+      days: ["Día Final", "Segundo Día", "Primer Día"],
+      remain: h => `-Quedan ${h} ${h === 1 ? "Hora" : "Horas"}-`,
+      far: ["La luna caerá en", d => `${d} Días`, "-Ocarina of Time · Switch 2-"],
+      final: ["Amanecer de un Nuevo Día", "Hora de jugar OoT", "-Ocarina of Time · Ya en Nintendo Switch 2-"],
+      units: "HORAS · MINUTOS · SEGUNDOS",
+      title: "Amanecer del Día Final · Ocarina of Time (Switch 2)",
+      titleFinal: "¡Hora de jugar OoT! · Ocarina of Time (Switch 2)",
+      sound: on => on ? "♪ SONIDO: SÍ" : "♪ SONIDO: NO",
+      fs: on => on ? "⛶ SALIR" : "⛶ PANTALLA COMPLETA",
+      other: "EN", otherLabel: "Switch to English"
+    },
+    en: {
+      part: ["Dawn of the", "Afternoon of the", "Night of the"],
+      days: ["Final Day", "Second Day", "First Day"],
+      remain: h => `-${h} ${h === 1 ? "Hour Remains" : "Hours Remain"}-`,
+      far: ["The moon will fall in", d => `${d} Days`, "-Ocarina of Time · Switch 2-"],
+      final: ["Dawn of a New Day", "Time to play OoT", "-Ocarina of Time · Out now on Nintendo Switch 2-"],
+      units: "HOURS · MINUTES · SECONDS",
+      title: "Dawn of the Final Day · Ocarina of Time (Switch 2)",
+      titleFinal: "Time to play OoT! · Ocarina of Time (Switch 2)",
+      sound: on => on ? "♪ SOUND: ON" : "♪ SOUND: OFF",
+      fs: on => on ? "⛶ EXIT" : "⛶ FULLSCREEN",
+      other: "ES", otherLabel: "Cambiar a español"
+    }
+  };
+  const detectLang = () => {
+    const pick = v => (v || "").slice(0, 2).toLowerCase();
+    const forced = pick(params.get("lang")) || pick(localStorage.getItem("lang"));
+    if (I18N[forced]) return forced;
+    const browser = (navigator.languages || [navigator.language]).map(pick).find(l => I18N[l]);
+    return browser || "en";
+  };
+  let lang = detectLang();
+  let T = I18N[lang];
+
   function partOfDay(date) {
     const h = date.getHours();
-    if (h >= 5 && h < 12) return "Amanecer del";
-    if (h >= 12 && h < 20) return "Tarde del";
-    return "Noche del";
+    if (h >= 5 && h < 12) return T.part[0];
+    if (h >= 12 && h < 20) return T.part[1];
+    return T.part[2];
   }
 
-  // ===== Sonido: campana sintetizada =====
+  // ===== Sonido =====
   let audio = null, soundOn = false;
   function bell(strength = 1) {
     if (!soundOn || !audio) return;
@@ -188,13 +248,15 @@
       o.start(t); o.stop(t + 6);
     });
   }
-  // Tic seco de reloj: golpe corto de ruido filtrado + un tono agudo muy breve
-  let noiseBuf = null;
-  function tic() {
-    if (!soundOn || !audio) return;
-    const t = audio.currentTime;
+  function bells(n, gap = 1.6) {
+    for (let i = 0; i < n; i++) setTimeout(() => bell(), i * gap * 1000);
+  }
+
+  // Tic seco de reloj, programado en el reloj de audio (preciso aunque la pestaña vaya lenta)
+  let noiseBuf = null, keepAlive = null, lastTicSec = Infinity;
+  function ticAt(t) {
     if (!noiseBuf) {
-      noiseBuf = audio.createBuffer(1, audio.sampleRate * .03, audio.sampleRate);
+      noiseBuf = audio.createBuffer(1, Math.round(audio.sampleRate * .03), audio.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 4);
     }
@@ -212,22 +274,42 @@
     o.connect(og).connect(audio.destination);
     o.start(t); o.stop(t + .05);
   }
-  function bells(n, gap = 1.6) {
-    for (let i = 0; i < n; i++) setTimeout(() => bell(), i * gap * 1000);
+  // Programa los tics de los próximos ~2 s, alineados con el cambio exacto de segundo
+  function scheduleTics(diff) {
+    if (!soundOn || !audio || audio.state !== "running") return;
+    const base = audio.currentTime + .02;
+    const frac = (diff % 1000) / 1000;
+    const sec = Math.floor(diff / 1000);
+    for (let k = 0; k < 3; k++) {
+      const n = sec - k;                  // el tic suena cuando quedan exactamente n segundos
+      if (n >= 1 && n < lastTicSec) { ticAt(base + frac + k); lastTicSec = n; }
+    }
   }
+  // Señal inaudible continua: evita que el sistema/auriculares "duerman" la salida entre tics
+  function startKeepAlive() {
+    if (keepAlive) return;
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = 40;
+    g.gain.value = .0008;
+    o.connect(g).connect(audio.destination);
+    o.start();
+    keepAlive = o;
+  }
+
   $("sound").addEventListener("click", () => {
     soundOn = !soundOn;
     if (soundOn) {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
       audio.resume();
+      startKeepAlive();
+      lastTicSec = Infinity;
       bell(.6);
     }
-    $("sound").textContent = soundOn ? "♪ SONIDO: SÍ" : "♪ SONIDO: NO";
-    $("sound").setAttribute("aria-pressed", soundOn);
+    applyStaticText();
   });
 
   // ===== Textos =====
-  let currentKey = null, swapping = false;
+  let currentKey = null;
   function setMessage(key, dawn, day, remain, animate) {
     if (key === currentKey) return;
     const apply = () => {
@@ -238,16 +320,32 @@
     const first = currentKey === null;
     currentKey = key;
     if (first || !animate) return apply();
-    swapping = true;
     $("title").classList.add("out");
     $("remain").classList.add("out");
     setTimeout(() => {
       apply();
       $("title").classList.remove("out");
       $("remain").classList.remove("out");
-      swapping = false;
     }, 950);
   }
+  function applyStaticText() {
+    document.documentElement.lang = lang;
+    document.title = finished ? T.titleFinal : T.title;
+    $("sound").textContent = T.sound(soundOn);
+    $("sound").setAttribute("aria-pressed", soundOn);
+    $("fs").textContent = T.fs(!!(document.fullscreenElement || document.webkitFullscreenElement));
+    $("lang").textContent = T.other;
+    $("lang").setAttribute("aria-label", T.otherLabel);
+    $("lang").title = T.otherLabel;
+  }
+  $("lang").addEventListener("click", () => {
+    lang = lang === "es" ? "en" : "es";
+    T = I18N[lang];
+    localStorage.setItem("lang", lang);
+    currentKey = null;
+    applyStaticText();
+    if (finished) setMessage("final", ...T.final); else tick(false);
+  });
 
   // ===== Efectos de urgencia =====
   function setUrgency(totalH) {
@@ -272,8 +370,8 @@
       root.setProperty("--glow", "rgba(255,255,255,.35)");
       root.setProperty("--amp", "0px");
       currentKey = null;
-      setMessage("final", "The Legend of Zelda", "Ocarina of Time", "-Ya disponible en Nintendo Switch 2-");
-      document.title = "¡Ya disponible! · Ocarina of Time (Switch 2)";
+      setMessage("final", ...T.final);
+      applyStaticText();
     };
     if (live) {
       $("flash").classList.add("on");
@@ -285,7 +383,7 @@
   }
 
   // ===== Bucle principal =====
-  let lastHour = null, lastSec = null;
+  let lastHour = null;
   function tick(live) {
     const diff = TARGET - now();
     if (diff <= 0) { if (!finished) showFinal(live); return false; }
@@ -294,13 +392,12 @@
     const hoursLeft = Math.ceil(totalH);
 
     if (totalH <= 72) {
-      const day = DAYS[Math.min(2, Math.floor(totalH / 24))];
+      const day = T.days[Math.min(2, Math.floor(totalH / 24))];
       const dawn = partOfDay(new Date(now()));
-      const remain = `-Quedan ${hoursLeft} ${hoursLeft === 1 ? "Hora" : "Horas"}-`;
-      setMessage(`${dawn}|${day}|${hoursLeft}`, dawn, day, remain, live);
+      setMessage(`${lang}|${dawn}|${day}|${hoursLeft}`, dawn, day, T.remain(hoursLeft), live);
     } else {
       const d = Math.floor(diff / 864e5);
-      setMessage(`d${d}`, "La luna caerá en", `${d} Días`, "-Ocarina of Time · Switch 2-", live);
+      setMessage(`${lang}|d${d}`, T.far[0], T.far[1](d), T.far[2], live);
     }
 
     // Campanadas al cambiar de hora (más en las últimas horas)
@@ -308,13 +405,12 @@
     lastHour = hoursLeft;
 
     setUrgency(totalH);
+    scheduleTics(diff);
 
     const h = Math.floor(diff / 36e5);
     const m = Math.floor(diff / 6e4) % 60;
     const s = Math.floor(diff / 1e3) % 60;
-    if (live && s !== lastSec) tic();
-    lastSec = s;
-    $("clock").innerHTML = `${pad(h)}:${pad(m)}:${pad(s)}<small>HORAS · MINUTOS · SEGUNDOS</small>`;
+    $("clock").innerHTML = `${pad(h)}:${pad(m)}:${pad(s)}<small>${T.units}</small>`;
     return true;
   }
 
@@ -330,12 +426,8 @@
         (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
       }
     });
-    const syncFs = () => {
-      fsBtn.textContent = (document.fullscreenElement || document.webkitFullscreenElement)
-        ? "⛶ SALIR" : "⛶ PANTALLA COMPLETA";
-    };
-    document.addEventListener("fullscreenchange", syncFs);
-    document.addEventListener("webkitfullscreenchange", syncFs);
+    document.addEventListener("fullscreenchange", applyStaticText);
+    document.addEventListener("webkitfullscreenchange", applyStaticText);
   }
 
   // ===== Picture-in-Picture: se dibuja el contador en un canvas y se emite como vídeo =====
@@ -354,9 +446,11 @@
     const final = document.body.classList.contains("final");
     const clock = $("clock").firstChild ? $("clock").firstChild.textContent : "";
     px.font = `700 40px ${family}`;  px.fillText($("dawn").textContent, 320 + jx, (final ? 100 : 70) + jy);
-    px.font = `700 84px ${family}`;  px.fillText($("day").textContent, 320 + jx, (final ? 175 : 140) + jy);
-    px.font = `600 34px ${family}`;  px.fillText($("remain").textContent, 320 + jx, (final ? 255 : 215) + jy);
+    px.font = `700 ${final ? 72 : 84}px ${family}`;  px.fillText($("day").textContent, 320 + jx, (final ? 175 : 140) + jy);
+    px.font = `600 ${final ? 26 : 34}px ${family}`;  px.fillText($("remain").textContent, 320 + jx, (final ? 255 : 215) + jy);
     if (!final) { px.font = `700 56px ${family}`; px.fillText(clock, 320 + jx, 290 + jy); }
+    px.shadowBlur = 0; px.fillStyle = "rgba(242,242,236,.3)"; px.textAlign = "left";
+    px.font = `600 14px ${family}`; px.fillText("Y U I Z Z", 16, 342);
   }
   const canPip = document.pictureInPictureEnabled && pc.captureStream;
   if (canPip) {
@@ -384,6 +478,7 @@
   ["mousemove", "touchstart", "keydown"].forEach(ev => addEventListener(ev, wake, { passive: true }));
   wake();
 
+  applyStaticText();
   if (tick(false)) {
     const id = setInterval(() => { if (!tick(true)) clearInterval(id); }, 250);
   }
