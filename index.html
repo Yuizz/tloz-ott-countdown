@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amanecer del Día Final · Ocarina of Time (Switch 2)</title>
+<meta name="description" content="Cuenta atrás al estilo Majora's Mask para el remake de Ocarina of Time en Nintendo Switch 2.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Sans+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #000; }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: "Fira Sans Condensed", "Arial Narrow", Arial, sans-serif;
+    font-weight: 700;
+    color: #f2f2ec;
+    text-align: center;
+    text-shadow: 0 0 2px rgba(255,255,255,.35);
+    -webkit-font-smoothing: antialiased;
+  }
+  main { opacity: 0; animation: fade 2.5s ease forwards .4s; }
+  @keyframes fade { to { opacity: 1; } }
+
+  .dawn   { font-size: clamp(1.8rem, 6vw, 3.6rem); line-height: 1; }
+  .day    { font-size: clamp(3.2rem, 12vw, 7rem); line-height: 1.05; }
+  .remain { font-size: clamp(1.6rem, 5.4vw, 3.2rem); margin-top: .5em; font-weight: 600; }
+  .clock  {
+    margin-top: .6em;
+    font-size: clamp(2rem, 7vw, 4.2rem);
+    font-weight: 700;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .02em;
+  }
+  .clock small {
+    display: block;
+    margin-top: .5em;
+    font-size: clamp(.7rem, 1.8vw, 1rem);
+    font-weight: 600;
+    letter-spacing: .35em;
+    opacity: .55;
+  }
+</style>
+</head>
+<body>
+  <main>
+    <h1>
+      <span class="dawn" id="dawn">Amanecer del</span><br>
+      <span class="day" id="day">Día Final</span>
+    </h1>
+    <p class="remain" id="remain">-Quedan 24 Horas-</p>
+    <p class="clock" id="clock">00:00:00</p>
+  </main>
+
+<script>
+  // Medianoche del 5 de noviembre de 2026 en la hora local de quien visita.
+  // Para una hora fija (p. ej. medianoche ET) usa: new Date("2026-11-05T00:00:00-05:00")
+  const TARGET = new Date(2026, 10, 5, 0, 0, 0);
+  const DAYS = ["Día Final", "Segundo Día", "Primer Día"];
+
+  const $ = id => document.getElementById(id);
+  const pad = n => String(n).padStart(2, "0");
+
+  function tick() {
+    const diff = TARGET - Date.now();
+    if (diff <= 0) {
+      $("dawn").textContent = "Ocarina of Time";
+      $("day").textContent = "¡Ya disponible!";
+      $("remain").textContent = "-Nintendo Switch 2-";
+      $("clock").textContent = "";
+      return false;
+    }
+    const totalH = diff / 36e5;
+    const days = Math.floor(diff / 864e5);
+
+    if (totalH <= 72) {
+      $("dawn").textContent = "Amanecer del";
+      $("day").textContent = DAYS[Math.min(2, Math.floor(totalH / 24))];
+      const h = Math.ceil(totalH);
+      $("remain").textContent = `-Quedan ${h} ${h === 1 ? "Hora" : "Horas"}-`;
+    } else {
+      $("dawn").textContent = "La luna caerá en";
+      $("day").textContent = `${days} Días`;
+      $("remain").textContent = "-Ocarina of Time · Switch 2-";
+    }
+
+    const h = Math.floor(diff / 36e5);
+    const m = Math.floor(diff / 6e4) % 60;
+    const s = Math.floor(diff / 1e3) % 60;
+    $("clock").innerHTML = `${pad(h)}:${pad(m)}:${pad(s)}<small>HORAS · MINUTOS · SEGUNDOS</small>`;
+    return true;
+  }
+  if (tick()) {
+    const id = setInterval(() => { if (!tick()) clearInterval(id); }, 1000);
+  }
+</script>
+</body>
+</html>
