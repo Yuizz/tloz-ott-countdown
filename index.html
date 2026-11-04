@@ -164,7 +164,7 @@
     <button id="fs" type="button" hidden>⛶</button>
     <button id="sound" type="button" aria-pressed="false">♪</button>
   </div>
-  <a class="mark" href="https://github.com/Yuizz/tloz-ott-countdown" target="_blank" rel="noopener">YUIZZ</a>
+  <a class="mark" href="https://github.com/Yuizz" target="_blank" rel="noopener">YUIZZ</a>
   <video id="pipVideo" muted playsinline></video>
 
 <script>
@@ -255,24 +255,38 @@
   // Tic seco de reloj, programado en el reloj de audio (preciso aunque la pestaña vaya lenta)
   let noiseBuf = null, keepAlive = null, lastTicSec = Infinity;
   function ticAt(t) {
+    // Reloj de torre: golpe grave de madera/metal con algo de cuerpo y resonancia
     if (!noiseBuf) {
-      noiseBuf = audio.createBuffer(1, Math.round(audio.sampleRate * .03), audio.sampleRate);
+      noiseBuf = audio.createBuffer(1, Math.round(audio.sampleRate * .12), audio.sampleRate);
       const d = noiseBuf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 4);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 6);
     }
+    // 1) Golpe: ruido filtrado en graves-medios
     const n = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
     n.buffer = noiseBuf;
-    f.type = "bandpass"; f.frequency.value = 3200; f.Q.value = 3;
-    g.gain.value = .5;
+    f.type = "bandpass"; f.frequency.value = 700; f.Q.value = 1.4;
+    g.gain.value = .9;
     n.connect(f).connect(g).connect(audio.destination);
     n.start(t);
 
+    // 2) Cuerpo: tono grave que cae de tono (el "tunk" del mecanismo)
     const o = audio.createOscillator(), og = audio.createGain();
-    o.type = "triangle"; o.frequency.value = 1800;
-    og.gain.setValueAtTime(.12, t);
-    og.gain.exponentialRampToValueAtTime(.0001, t + .04);
+    o.type = "sine";
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(70, t + .18);
+    og.gain.setValueAtTime(0, t);
+    og.gain.linearRampToValueAtTime(.45, t + .004);
+    og.gain.exponentialRampToValueAtTime(.0001, t + .28);
     o.connect(og).connect(audio.destination);
-    o.start(t); o.stop(t + .05);
+    o.start(t); o.stop(t + .3);
+
+    // 3) Resonancia metálica corta del engranaje
+    const r = audio.createOscillator(), rg = audio.createGain();
+    r.type = "triangle"; r.frequency.value = 330;
+    rg.gain.setValueAtTime(.06, t);
+    rg.gain.exponentialRampToValueAtTime(.0001, t + .15);
+    r.connect(rg).connect(audio.destination);
+    r.start(t); r.stop(t + .16);
   }
   // Programa los tics de los próximos ~2 s, alineados con el cambio exacto de segundo
   function scheduleTics(diff) {
