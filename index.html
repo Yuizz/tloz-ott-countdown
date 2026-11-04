@@ -197,7 +197,7 @@
       units: "HORAS · MINUTOS · SEGUNDOS",
       title: "Amanecer del Día Final · Ocarina of Time (Switch 2)",
       titleFinal: "¡Hora de jugar OoT! · Ocarina of Time (Switch 2)",
-      sound: on => on ? "♪ SONIDO: SÍ" : "♪ SONIDO: NO",
+      sound: v => ["♪ SONIDO: NO", "♪ RELOJ", "♪ PÉNDULO", "♪ MARTILLO"][v],
       fs: on => on ? "⛶ SALIR" : "⛶ PANTALLA COMPLETA",
       other: "EN", otherLabel: "Switch to English"
     },
@@ -210,7 +210,7 @@
       units: "HOURS · MINUTES · SECONDS",
       title: "Dawn of the Final Day · Ocarina of Time (Switch 2)",
       titleFinal: "Time to play OoT! · Ocarina of Time (Switch 2)",
-      sound: on => on ? "♪ SOUND: ON" : "♪ SOUND: OFF",
+      sound: v => ["♪ SOUND: OFF", "♪ CLOCK", "♪ PENDULUM", "♪ HAMMER"][v],
       fs: on => on ? "⛶ EXIT" : "⛶ FULLSCREEN",
       other: "ES", otherLabel: "Cambiar a español"
     }
@@ -252,42 +252,52 @@
     for (let i = 0; i < n; i++) setTimeout(() => bell(), i * gap * 1000);
   }
 
-  // Tic seco de reloj, programado en el reloj de audio (preciso aunque la pestaña vaya lenta)
-  let noiseBuf = null, keepAlive = null, lastTicSec = Infinity;
-  function ticAt(t) {
-    // Reloj de torre: golpe grave de madera/metal con algo de cuerpo y resonancia
-    if (!noiseBuf) {
-      noiseBuf = audio.createBuffer(1, Math.round(audio.sampleRate * .12), audio.sampleRate);
-      const d = noiseBuf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 6);
-    }
-    // 1) Golpe: ruido filtrado en graves-medios
-    const n = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
-    n.buffer = noiseBuf;
-    f.type = "bandpass"; f.frequency.value = 700; f.Q.value = 1.4;
-    g.gain.value = .9;
-    n.connect(f).connect(g).connect(audio.destination);
-    n.start(t);
-
-    // 2) Cuerpo: tono grave que cae de tono (el "tunk" del mecanismo)
-    const o = audio.createOscillator(), og = audio.createGain();
-    o.type = "sine";
-    o.frequency.setValueAtTime(140, t);
-    o.frequency.exponentialRampToValueAtTime(70, t + .18);
-    og.gain.setValueAtTime(0, t);
-    og.gain.linearRampToValueAtTime(.45, t + .004);
-    og.gain.exponentialRampToValueAtTime(.0001, t + .28);
-    o.connect(og).connect(audio.destination);
-    o.start(t); o.stop(t + .3);
-
-    // 3) Resonancia metálica corta del engranaje
-    const r = audio.createOscillator(), rg = audio.createGain();
-    r.type = "triangle"; r.frequency.value = 330;
-    rg.gain.setValueAtTime(.06, t);
-    rg.gain.exponentialRampToValueAtTime(.0001, t + .15);
-    r.connect(rg).connect(audio.destination);
-    r.start(t); r.stop(t + .16);
+  // Tres voces de tic, programadas en el reloj de audio (preciso aunque la pestaña vaya lenta)
+  //   1 = reloj (seco y agudo), 2 = péndulo (golpe sordo muy grave), 3 = martillo (seco y pesado)
+  let voice = 0;
+  function env(g, t, peak, dur, attack = .003) {
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + attack);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
   }
+  function tone(t, freq, type, peak, dur, endFreq) {
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, t + dur * .7);
+    env(g, t, peak, dur); o.connect(g).connect(audio.destination); o.start(t); o.stop(t + dur + .05);
+  }
+  const noiseCache = {};
+  function noise(t, dur, type, freq, q, peak, curve = 5) {
+    const key = dur + "|" + curve;
+    if (!noiseCache[key]) {
+      const b = audio.createBuffer(1, Math.round(audio.sampleRate * dur), audio.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, curve);
+      noiseCache[key] = b;
+    }
+    const s = audio.createBufferSource(), f = audio.createBiquadFilter(), g = audio.createGain();
+    s.buffer = noiseCache[key]; f.type = type; f.frequency.value = freq; f.Q.value = q; g.gain.value = peak;
+    s.connect(f).connect(g).connect(audio.destination); s.start(t);
+  }
+  const VOICES = {
+    1: t => {                       // reloj
+      noise(t, .03, "bandpass", 3200, 3, .5, 4);
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = "triangle"; o.frequency.value = 1800;
+      g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.0001, t + .04);
+      o.connect(g).connect(audio.destination); o.start(t); o.stop(t + .05);
+    },
+    2: t => {                       // péndulo
+      tone(t, 95, "sine", .6, .45, 55);
+      noise(t, .04, "lowpass", 600, 1, .7);
+    },
+    3: t => {                       // martillo
+      noise(t, .03, "bandpass", 900, 3, 1.2);
+      tone(t, 160, "square", .08, .09, 110);
+      tone(t, 80, "sine", .5, .18, 60);
+    }
+  };
+  let keepAlive = null, lastTicSec = Infinity;
+  function ticAt(t) { if (VOICES[voice]) VOICES[voice](t); }
   // Programa los tics de los próximos ~2 s, alineados con el cambio exacto de segundo
   function scheduleTics(diff) {
     if (!soundOn || !audio || audio.state !== "running") return;
@@ -311,13 +321,13 @@
   }
 
   $("sound").addEventListener("click", () => {
-    soundOn = !soundOn;
+    voice = (voice + 1) % 4;       // NO → reloj → péndulo → martillo → NO
+    soundOn = voice > 0;
     if (soundOn) {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
       audio.resume();
       startKeepAlive();
-      lastTicSec = Infinity;
-      bell(.6);
+      if (voice === 1) bell(.6);   // campanada solo al activar
     }
     applyStaticText();
   });
@@ -345,7 +355,7 @@
   function applyStaticText() {
     document.documentElement.lang = lang;
     document.title = finished ? T.titleFinal : T.title;
-    $("sound").textContent = T.sound(soundOn);
+    $("sound").textContent = T.sound(voice);
     $("sound").setAttribute("aria-pressed", soundOn);
     $("fs").textContent = T.fs(!!(document.fullscreenElement || document.webkitFullscreenElement));
     $("lang").textContent = T.other;
